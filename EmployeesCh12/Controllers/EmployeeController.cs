@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using EmployeesCh12.Data;
 using EmployeesCh12.Models;
+using EmployeesCh12.ViewModels;
 
 namespace EmployeesCh12.Controllers
 {
@@ -20,10 +21,54 @@ namespace EmployeesCh12.Controllers
         }
 
         // GET: Employees
-        public async Task<IActionResult> Index()
+        public async Task<IActionResult> Index(string sortOrder, string currentFilter, string searchString, int? pageNumber)
         {
-            var employeeContext = _context.Employees.Include(e => e.Department);
-            return View(await employeeContext.ToListAsync());
+            ViewData["CurrentSort"] = sortOrder;
+            ViewData["NameSortParm"] = String.IsNullOrEmpty(sortOrder) ? "name_desc" : "";
+            ViewData["DateSortParm"] = sortOrder == "Date" ? "date_desc" : "Date";
+
+            if (searchString != null)
+            {
+                pageNumber = 1;
+            }
+            else
+            {
+                searchString = currentFilter;
+            }
+
+            ViewData["CurrentFilter"] = searchString;
+
+            var employees = from e in _context.Employees.Include(e => e.Department).Include(e => e.Benefits) select e;
+
+            if (!String.IsNullOrEmpty(searchString))
+            {
+                //I took this one step further by separating the search string at spaces or commas to allow for
+                //multiple name filters to be applied at once :)
+                var splitStrings = searchString.Split(' ', ',');
+                foreach (var splitString in splitStrings)
+                {
+                    employees = employees.Where(s => s.LastName.Contains(splitString) || s.FirstName.Contains(splitString));
+                }
+            }
+
+            switch (sortOrder)
+            {
+                case "name_desc":
+                    employees = employees.OrderByDescending(e => e.LastName);
+                    break;
+                case "Date":
+                    employees = employees.OrderBy(e => e.HireDate);
+                    break;
+                case "date_desc":
+                    employees = employees.OrderByDescending(e => e.HireDate);
+                    break;
+                default:
+                    employees = employees.OrderBy(e => e.LastName);
+                    break;
+            }
+
+            int pageSize = 3;
+            return View(await PaginatedList<Employee>.CreateAsync(employees.AsNoTracking(), pageNumber ?? 1, pageSize));
         }
 
         // GET: Employees/Details/5
@@ -155,6 +200,20 @@ namespace EmployeesCh12.Controllers
         private bool EmployeeExists(int id)
         {
             return _context.Employees.Any(e => e.ID == id);
+        }
+
+        [HttpGet]
+        public IActionResult DeptCount()
+        {
+            IQueryable<DepartmentGroup> data =
+                 from employee in _context.Employees.Include(e => e.Department)
+                 group employee by employee.DepartmentID into deptGroup
+                 select new DepartmentGroup()
+                 {
+                     DepartmentID = deptGroup.Key,
+                     DepartmentCount = deptGroup.Count()
+                 };
+            return View(data.ToList());
         }
     }
 }
